@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم المتداول المحترف | Professional Trading Journal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #111827; /* Dark Gray */
+            color: #d1d5db; /* Light Gray Text */
+        }
+        .card {
+            background-color: #1f2937; /* Lighter Dark Gray */
+            border: 1px solid #374151;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        .btn-primary { 
+            background-color: #3b82f6; /* Blue */
+            color: #FFFFFF; 
+            transition: background-color 0.3s, transform 0.2s; 
+        }
+        .btn-primary:hover { 
+            background-color: #2563eb; 
+            transform: scale(1.02); 
+        }
+        .chart-container { position: relative; width: 100%; height: 350px; }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        
+        .blurry-overlay {
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        
+        #trade-log-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        #trade-log-container::-webkit-scrollbar-track {
+            background: #374151;
+            border-radius: 10px;
+        }
+        #trade-log-container::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 10px;
+        }
+        #trade-log-container::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+        .trade-details {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.5s ease-in-out;
+        }
+        .trade-item.expanded .trade-details {
+             max-height: 500px;
+        }
+    </style>
+</head>
+<body class="text-gray-200">
+
+    <!-- Firestore Dependencies -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, GoogleAuthProvider, OAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, onSnapshot, collection, query, serverTimestamp, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+
+        window.firebaseApp = null;
+        window.db = null;
+        window.auth = null;
+        window.userId = null;
+        window.appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyAXdhPKpGZAE7SBL0SsWqDyX0zvr-e6y6U",
+            authDomain: "arkane-journal-traiding.firebaseapp.com",
+            projectId: "arkane-journal-traiding",
+            storageBucket: "arkane-journal-traiding.appspot.com",
+            messagingSenderId: "678965181099",
+            appId: "1:678965181099:web:d9747db9385a52e207d5ee",
+            measurementId: "G-NFX3CFRS4N"
+        };
+
+        window.collection = collection;
+        window.query = query;
+        window.onSnapshot = onSnapshot;
+        window.addDoc = addDoc;
+        window.deleteDoc = deleteDoc;
+        window.doc = doc;
+        window.serverTimestamp = serverTimestamp;
+        window.GoogleAuthProvider = GoogleAuthProvider;
+        window.OAuthProvider = OAuthProvider; // Added for Apple Sign-in
+        window.signInWithPopup = signInWithPopup;
+
+        setLogLevel('error');
+        try {
+            window.firebaseApp = initializeApp(firebaseConfig);
+            window.db = getFirestore(window.firebaseApp);
+            window.auth = getAuth(window.firebaseApp);
+
+            onAuthStateChanged(window.auth, (user) => {
+                if (user) {
+                    window.userId = user.uid;
+                    document.dispatchEvent(new Event('authReady'));
+                } else {
+                     document.dispatchEvent(new Event('authNeeded'));
+                }
+            });
+        } catch (error) {
+            console.error("Firebase initialization failed:", error);
+            document.dispatchEvent(new Event('authNeeded'));
+        }
+    </script>
+
+    <!-- Auth & Loading Overlay -->
+    <div id="auth-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-80 blurry-overlay z-50 flex justify-center items-center p-4">
+        <div id="auth-modal" class="bg-gray-800 p-8 sm:p-10 rounded-2xl shadow-2xl flex-col items-center border border-gray-700 w-11/12 sm:w-auto max-w-md hidden">
+             <div class="mb-4 text-center">
+                 <span class="text-5xl">📈</span>
+            </div>
+            <h2 class="text-2xl sm:text-3xl font-bold mb-2 text-white text-center">مرحباً بك في سجل تداول اركان</h2>
+            <p class="text-gray-400 mb-8 text-center">سجل صفقاتك، حلل أدائك، وتطور كمتداول.</p>
+            
+            <div class="space-y-4 w-full">
+                <button id="google-signin-btn" class="w-full bg-white hover:bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg border border-gray-300 transition-colors flex items-center justify-center gap-3">
+                    <!-- Clean Google Logo SVG -->
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22px" height="22px" viewBox="0 0 24 24" fill="currentColor"><path d="M12.48 10.92v3.28h7.84c-.24 1.84-.85 3.18-1.73 4.1-1.02 1.02-2.3 1.62-3.85 1.62-4.66 0-8.49-3.83-8.49-8.49s3.83-8.49 8.49-8.49c2.65 0 4.29 1.04 5.3 2.01l2.76-2.76c-1.75-1.62-4.02-2.61-6.75-2.61-5.52 0-10 4.48-10 10s4.48 10 10 10c3.13 0 5.66-1.04 7.55-2.94 2-1.93 2.62-4.59 2.62-6.93 0-.6-.05-1.19-.16-1.74z"/></svg>
+                    <span>المتابعة باستخدام Google</span>
+                </button>
+                 <button id="apple-signin-btn" class="w-full bg-black hover:bg-gray-900 text-white font-bold py-3 px-6 rounded-lg border border-gray-600 transition-colors flex items-center justify-center gap-3">
+                    <!-- Clean Apple Logo SVG -->
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22px" height="22px" viewBox="0 0 24 24" fill="currentColor"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.028-3.91 1.183-4.961 3.014-2.117 3.675-.537 9.053 1.5 12.23.994 1.548 2.14 3.096 3.63 3.124 1.454.028 1.95-.966 3.63-1.012 1.68-.046 2.129.938 3.602 1.012 1.53.056 2.623-1.51 3.616-3.124 1.257-1.92 1.63-3.363 1.646-3.487-.031-.015-3.124-1.8-3.155-5.42.021-3.232 2.45-4.514 2.62-4.664-1.232-1.826-3.21-2.08-3.955-2.11-1.928-.028-3.617 1.092-4.585 1.092zM10.83 3.587c.973-.014 2.222.56 3.038 1.413-.74 1.02-1.83 1.413-2.923 1.413-.933 0-2.15- .504-2.938-1.385.76-.84 1.66-1.44 2.823-1.44z"/></svg>
+                    <span>المتابعة باستخدام Apple</span>
+                </button>
+            </div>
+            <div class="mt-8 text-center">
+                <button id="guest-signin-btn" class="text-sm text-gray-400 hover:text-white transition-colors">أو المتابعة كضيف</button>
+            </div>
+        </div>
+         <div id="loading-container" class="text-center bg-gray-800 p-10 rounded-2xl shadow-xl flex-col items-center border border-gray-700 hidden">
+            <div id="loading-spinner" class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <h2 id="loading-title" class="text-2xl font-bold mb-4 text-white">جاري المزامنة...</h2>
+        </div>
+    </div>
+
+    <div id="app-container" class="opacity-0 transition-opacity duration-500 flex min-h-screen">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-gray-900 p-6 space-y-8 hidden lg:block border-l border-gray-700">
+            <div class="flex items-center gap-3">
+                 <span class="text-3xl">📈</span>
+                 <h1 class="text-xl font-bold text-white">سجل تداول اركان</h1>
+            </div>
+            <nav class="space-y-2">
+                <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-lg bg-blue-600 text-white font-bold">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                    <span>لوحة التحكم</span>
+                </a>
+            </nav>
+            <div class="absolute bottom-6">
+                <div id="user-info" class="flex items-center gap-3 bg-gray-800 p-2 pr-4 rounded-lg border border-gray-700">
+                    <span class="font-mono text-xs text-gray-400" id="user-id-display"></span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 p-4 sm:p-6 lg:p-8">
+            <header class="flex flex-wrap justify-between items-center gap-4 mb-8">
+                <div>
+                     <h1 class="text-3xl font-bold text-white">لوحة التحكم</h1>
+                     <p class="text-gray-400">تحليل شامل لأداء التداول الخاص بك.</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button id="add-trade-btn" class="btn-primary font-bold py-2 px-5 rounded-lg flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="5" y2="19"/><line x1="5" x2="19" y1="12" y2="12"/></svg>
+                        <span>إضافة صفقة</span>
+                    </button>
+                    <button id="settings-btn" class="p-3 bg-gray-800 rounded-lg border border-gray-700 hover:bg-gray-700 transition-colors" title="إعدادات وتصدير البيانات">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1 0-2l.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                </div>
+            </header>
+
+            <!-- KPIs Section -->
+            <section class="mb-8">
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6" id="kpi-cards">
+                    <!-- KPI Cards will be injected here -->
+                </div>
+            </section>
+
+            <!-- Charts and Logs -->
+            <section class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- Left: Equity Curve & Setups -->
+                 <div class="lg:col-span-2 space-y-8">
+                    <div class="card p-6 rounded-xl">
+                        <h2 class="text-xl font-bold text-white mb-4">منحنى نمو رأس المال</h2>
+                        <div class="chart-container">
+                            <canvas id="equityChart"></canvas>
+                        </div>
+                    </div>
+                     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                         <div class="card p-6 rounded-xl">
+                            <h2 class="text-xl font-bold text-white mb-4">تحليل أداء الاستراتيجيات</h2>
+                            <div class="chart-container h-64">
+                                <canvas id="setupsChart"></canvas>
+                            </div>
+                        </div>
+                        <!-- Placeholder for another chart -->
+                         <div class="card p-6 rounded-xl">
+                            <h2 class="text-xl font-bold text-white mb-4">مقاييس أداء إضافية</h2>
+                            <div class="space-y-4 pt-2">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-gray-400">أطول سلسلة رابحة</span>
+                                    <span id="longestWinStreak" class="font-bold text-green-400 text-2xl">0</span>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-gray-400">أطول سلسلة خاسرة</span>
+                                    <span id="longestLossStreak" class="font-bold text-red-400 text-2xl">0</span>
+                                </div>
+                                 <div class="flex justify-between items-center">
+                                    <span class="text-gray-400">مجموع الصفقات الرابحة</span>
+                                    <span id="totalWins" class="font-bold text-gray-300 text-2xl">0</span>
+                                </div>
+                                 <div class="flex justify-between items-center">
+                                    <span class="text-gray-400">مجموع الصفقات الخاسرة</span>
+                                    <span id="totalLosses" class="font-bold text-gray-300 text-2xl">0</span>
+                                </div>
+                            </div>
+                        </div>
+                     </div>
+                 </div>
+
+                <!-- Right: Trade Log -->
+                <div class="lg:col-span-1 card p-6 rounded-xl">
+                    <h2 class="text-xl font-bold text-white mb-4">أحدث الصفقات</h2>
+                    <div id="trade-log-container" class="space-y-3 h-[42rem] overflow-y-auto pr-2">
+                        <!-- Trades will be injected here -->
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals (Add Trade, Settings, Confirmation) -->
+    
+    <!-- Add/Edit Trade Modal -->
+    <div id="trade-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 blurry-overlay flex justify-center items-center z-50 hidden animate-fade-in">
+        <div class="card rounded-2xl p-8 w-11/_12 md:w-2/3 lg:w-1/3 shadow-2xl">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-white">إضافة صفقة جديدة</h2>
+                <button id="close-trade-modal-btn" class="text-gray-400 hover:text-white text-3xl">&times;</button>
+            </div>
+            <form id="trade-form" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-sm text-gray-400 font-medium block mb-1">الأصل المالي</label>
+                        <input type="text" id="asset" required class="w-full p-2.5 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="BTC/USDT">
+                    </div>
+                     <div>
+                        <label class="text-sm text-gray-400 font-medium block mb-1">استراتيجية التداول</label>
+                        <input type="text" id="setup" required class="w-full p-2.5 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Breakout, Reversal...">
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="text-sm text-gray-400 font-medium block mb-1">نتيجة الصفقة</label>
+                        <select id="status" required class="w-full p-2.5 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="Win">ربح</option>
+                            <option value="Loss">خسارة</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-400 font-medium block mb-1">اتجاه الصفقة</label>
+                        <select id="direction" required class="w-full p-2.5 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="Long">شراء</option>
+                            <option value="Short">بيع</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-400 font-medium block mb-1">قيمة الربح/الخسارة ($)</label>
+                        <input type="number" id="profit" required step="0.01" class="w-full p-2.5 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="150.50">
+                    </div>
+                </div>
+                 <div>
+                    <label class="text-sm text-gray-400 font-medium block mb-1">إرفاق صورة التحليل (اختياري - حد أقصى 500KB)</label>
+                    <input type="file" id="tradeImage" accept="image/*" class="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-600 file:text-gray-200 hover:file:bg-gray-500"/>
+                </div>
+                <div>
+                    <label class="text-sm text-gray-400 font-medium block mb-1">ملاحظات على الصفقة</label>
+                    <textarea id="notes" rows="3" class="w-full p-2.5 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="دوّن أسباب الدخول، الخروج، والأخطاء التي ارتكبتها."></textarea>
+                </div>
+                <button type="submit" id="submit-btn" class="btn-primary w-full font-bold py-3 px-4 rounded-lg flex justify-center items-center h-12 text-base">
+                    حفظ
+                </button>
+                <p id="form-message" class="text-center text-sm hidden"></p>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-black bg-opacity-70 blurry-overlay flex justify-center items-center z-50 hidden">
+         <div class="bg-gray-800 border border-gray-700 rounded-2xl p-6 md:p-8 w-11/12 md:w-2/3 lg:w-1/2 shadow-2xl animate-fade-in">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-white">الإعدادات وتصدير البيانات</h2>
+                <button id="close-settings-modal-btn" class="text-gray-400 hover:text-white text-3xl">&times;</button>
+            </div>
+            <div class="space-y-6">
+                <div>
+                    <h3 class="text-lg font-semibold text-blue-400 mb-3">تصدير بيانات التداول</h3>
+                    <div class="bg-gray-700 p-4 rounded-lg space-y-3">
+                        <p class="text-sm text-gray-300">قم بتصدير سجل التداول بالكامل إلى ملف CSV لإجراء تحليل متقدم باستخدام برامج مثل Excel أو Google Sheets.</p>
+                        <button id="export-btn" class="btn-primary font-bold py-2 px-6 rounded-lg w-full">
+                            تصدير البيانات إلى CSV
+                        </button>
+                    </div>
+                </div>
+                 <div>
+                    <h3 class="text-lg font-semibold text-red-400 mb-3">إجراءات حساسة</h3>
+                    <div class="bg-red-900 bg-opacity-30 p-4 rounded-lg space-y-3 border border-red-500">
+                        <p class="text-sm text-red-300 font-bold">تنبيه: هذا الإجراء سيقوم بحذف جميع بيانات التداول الخاصة بك بشكل دائم ولا يمكن التراجع عنه.</p>
+                        <button id="clear-data-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg w-full transition-all">
+                            حذف جميع البيانات
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-70 blurry-overlay flex justify-center items-center z-50 hidden">
+         <div class="bg-gray-800 border border-gray-700 rounded-2xl p-6 md:p-8 w-11/12 md:w-1/3 shadow-2xl animate-fade-in">
+             <h2 id="confirm-title" class="text-xl font-bold text-white mb-4">تأكيد الإجراء</h2>
+             <p id="confirm-message" class="text-gray-300 mb-6">هل أنت متأكد من رغبتك في المتابعة؟ لا يمكن التراجع عن هذا الإجراء.</p>
+             <div class="flex justify-end gap-4">
+                 <button id="confirm-cancel-btn" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded-lg">إلغاء</button>
+                 <button id="confirm-action-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">نعم، قم بالحذف</button>
+             </div>
+         </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        let authReady = false;
+        let unsubscribe = null; // To detach Firestore listener
+        const state = {
+            trades: [],
+            stats: {
+                netPnl: 0, totalTrades: 0, winRate: 0, avgPnl: 0,
+                profitFactor: 0, avgWin: 0, avgLoss: 0,
+                longestWinStreak: 0, longestLossStreak: 0,
+                totalWins: 0, totalLosses: 0,
+                equityCurve: [], setupsPerformance: {}
+            },
+        };
+
+        const elements = {
+            appContainer: document.getElementById('app-container'),
+            authOverlay: document.getElementById('auth-overlay'),
+            authModal: document.getElementById('auth-modal'),
+            loadingContainer: document.getElementById('loading-container'),
+            userIdDisplay: document.getElementById('user-id-display'),
+            kpiContainer: document.getElementById('kpi-cards'),
+            tradeForm: document.getElementById('trade-form'),
+            tradeLogContainer: document.getElementById('trade-log-container'),
+            submitBtn: document.getElementById('submit-btn'),
+            
+            addTradeBtn: document.getElementById('add-trade-btn'),
+            tradeModal: document.getElementById('trade-modal'),
+            closeTradeModalBtn: document.getElementById('close-trade-modal-btn'),
+            settingsBtn: document.getElementById('settings-btn'),
+            settingsModal: document.getElementById('settings-modal'),
+            closeSettingsModalBtn: document.getElementById('close-settings-modal-btn'),
+            exportBtn: document.getElementById('export-btn'),
+            clearDataBtn: document.getElementById('clear-data-btn'),
+            confirmModal: document.getElementById('confirm-modal'),
+            confirmTitle: document.getElementById('confirm-title'),
+            confirmMessage: document.getElementById('confirm-message'),
+            confirmActionBtn: document.getElementById('confirm-action-btn'),
+            confirmCancelBtn: document.getElementById('confirm-cancel-btn'),
+
+            googleSignInBtn: document.getElementById('google-signin-btn'),
+            appleSignInBtn: document.getElementById('apple-signin-btn'),
+            guestSignInBtn: document.getElementById('guest-signin-btn'),
+
+            longestWinStreakDisplay: document.getElementById('longestWinStreak'),
+            longestLossStreakDisplay: document.getElementById('longestLossStreak'),
+            totalWinsDisplay: document.getElementById('totalWins'),
+            totalLossesDisplay: document.getElementById('totalLosses'),
+        };
+
+        const kpiConfig = [
+            { id: 'netPnl', label: 'صافي الأرباح', isCurrency: true },
+            { id: 'winRate', label: 'معدل النجاح', suffix: '%' },
+            { id: 'profitFactor', label: 'عامل الربح' },
+            { id: 'avgPnl', label: 'متوسط الصفقة', isCurrency: true },
+            { id: 'avgWin', label: 'متوسط الربح', isCurrency: true },
+            { id: 'avgLoss', label: 'متوسط الخسارة', isCurrency: true },
+        ];
+
+        let equityChart = null;
+        let setupsChart = null;
+        let confirmCallback = null;
+        
+        const formatCurrency = (value) => `${value >= 0 ? '+' : ''}$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        
+        const showConfirmation = (title, message, onConfirm) => {
+            elements.confirmTitle.textContent = title;
+            elements.confirmMessage.textContent = message;
+            elements.confirmModal.classList.remove('hidden');
+            confirmCallback = onConfirm;
+        };
+
+        const showLoading = () => {
+            elements.authModal.classList.add('hidden');
+            elements.loadingContainer.classList.remove('hidden');
+            elements.loadingContainer.classList.add('flex');
+        };
+
+        const showLoginOptions = () => {
+            elements.loadingContainer.classList.add('hidden');
+            elements.loadingContainer.classList.remove('flex');
+            elements.authModal.classList.remove('hidden');
+            elements.authModal.classList.add('flex');
+        };
+
+        const calculateStats = (trades) => {
+            const completed = trades.filter(t => t.date && t.date.seconds);
+            if (completed.length === 0) {
+                return {
+                    netPnl: 0, totalTrades: 0, winRate: 0, avgPnl: 0,
+                    profitFactor: 0, avgWin: 0, avgLoss: 0,
+                    longestWinStreak: 0, longestLossStreak: 0,
+                    totalWins: 0, totalLosses: 0,
+                    equityCurve: [], setupsPerformance: {}
+                };
+            }
+            
+            const wins = completed.filter(t => t.status === 'Win');
+            const losses = completed.filter(t => t.status === 'Loss');
+
+            const grossProfit = wins.reduce((sum, t) => sum + t.profit, 0);
+            const grossLoss = Math.abs(losses.reduce((sum, t) => sum + t.profit, 0));
+            const netPnl = grossProfit - grossLoss;
+
+            let currentWinStreak = 0, longestWinStreak = 0, currentLossStreak = 0, longestLossStreak = 0;
+            completed.sort((a, b) => a.date.seconds - b.date.seconds).forEach(trade => {
+                if (trade.status === 'Win') {
+                    currentWinStreak++;
+                    currentLossStreak = 0;
+                    if (currentWinStreak > longestWinStreak) longestWinStreak = currentWinStreak;
+                } else {
+                    currentLossStreak++;
+                    currentWinStreak = 0;
+                    if (currentLossStreak > longestLossStreak) longestLossStreak = currentLossStreak;
+                }
+            });
+
+            let cumulativePnl = 0;
+            const equityCurve = completed.map(t => {
+                cumulativePnl += t.profit;
+                return { date: t.date, pnl: cumulativePnl };
+            });
+
+            const setupsPerformance = completed.reduce((acc, trade) => {
+                const setup = trade.setup || 'غير محدد';
+                if (!acc[setup]) acc[setup] = { pnl: 0, count: 0 };
+                acc[setup].pnl += trade.profit;
+                acc[setup].count++;
+                return acc;
+            }, {});
+
+            return {
+                netPnl: netPnl, totalTrades: completed.length,
+                winRate: completed.length > 0 ? (wins.length / completed.length) * 100 : 0,
+                avgPnl: completed.length > 0 ? netPnl / completed.length : 0,
+                profitFactor: grossLoss > 0 ? grossProfit / grossLoss : 0,
+                avgWin: wins.length > 0 ? grossProfit / wins.length : 0,
+                avgLoss: losses.length > 0 ? grossLoss / losses.length : 0,
+                longestWinStreak, longestLossStreak,
+                totalWins: wins.length, totalLosses: losses.length,
+                equityCurve, setupsPerformance
+            };
+        };
+
+        const renderAll = () => {
+            state.stats = calculateStats(state.trades);
+            renderKPIs();
+            renderEquityCurve();
+            renderSetupsChart();
+            renderTradeLog();
+            renderExtraStats();
+        };
+
+        const renderKPIs = () => {
+            elements.kpiContainer.innerHTML = kpiConfig.map(kpi => {
+                let value = state.stats[kpi.id];
+                let formattedValue;
+                let colorClass = 'text-gray-200';
+
+                if (kpi.isCurrency) {
+                    formattedValue = formatCurrency(value);
+                    colorClass = value >= 0 ? 'text-green-400' : 'text-red-400';
+                } else {
+                    formattedValue = `${value.toFixed(1)}${kpi.suffix || ''}`;
+                }
+
+                if (kpi.id === 'profitFactor') {
+                     formattedValue = value.toFixed(2);
+                     colorClass = value >= 1 ? 'text-green-400' : 'text-red-400';
+                }
+                if (kpi.id === 'avgWin') colorClass = 'text-green-400';
+                if (kpi.id === 'avgLoss') colorClass = 'text-red-400';
+
+                return `
+                    <div class="card p-4 rounded-xl text-center flex flex-col justify-center items-center">
+                        <p class="text-sm text-gray-400 font-bold whitespace-nowrap">${kpi.label}</p>
+                        <p class="text-xl lg:text-2xl font-bold mt-1 ${colorClass} whitespace-nowrap">${formattedValue}</p>
+                    </div>`;
+            }).join('');
+        };
+        
+        const renderExtraStats = () => {
+            elements.longestWinStreakDisplay.textContent = state.stats.longestWinStreak;
+            elements.longestLossStreakDisplay.textContent = state.stats.longestLossStreak;
+            elements.totalWinsDisplay.textContent = state.stats.totalWins;
+            elements.totalLossesDisplay.textContent = state.stats.totalLosses;
+        };
+
+        const renderEquityCurve = () => {
+            const ctx = document.getElementById('equityChart').getContext('2d');
+            if (equityChart) equityChart.destroy();
+            
+            const gradient = ctx.createLinearGradient(0, 0, 0, 350);
+            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.4)');
+            gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+
+            const labels = ["البداية", ...state.stats.equityCurve.map((_, i) => `صفقة ${i+1}`)];
+            const dataPoints = [0, ...state.stats.equityCurve.map(d => d.pnl)];
+
+            equityChart = new Chart(ctx, {
+                type: 'line', data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'صافي الربح التراكمي', data: dataPoints, borderColor: '#3b82f6',
+                        backgroundColor: gradient, fill: true, tension: 0.4,
+                        pointRadius: dataPoints.length > 2 ? 2 : 4, pointBackgroundColor: '#3b82f6'
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: false, grid: { color: '#374151' }, ticks: { color: '#9ca3af' } },
+                        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 10 } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        };
+
+        const renderSetupsChart = () => {
+             const ctx = document.getElementById('setupsChart').getContext('2d');
+             if (setupsChart) setupsChart.destroy();
+
+             const labels = Object.keys(state.stats.setupsPerformance);
+             const data = labels.map(label => state.stats.setupsPerformance[label].pnl);
+             
+             const backgroundColors = data.map(pnl => pnl >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)');
+             const borderColors = data.map(pnl => pnl >= 0 ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)');
+
+             setupsChart = new Chart(ctx, {
+                type: 'doughnut', data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'صافي الربح', data: data, backgroundColor: backgroundColors,
+                        borderColor: borderColors, borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { position: 'top', labels: { color: '#d1d5db' } },
+                        tooltip: { callbacks: { label: (c) => `${c.label}: ${formatCurrency(c.raw)}` } }
+                    }
+                }
+             });
+        };
+
+        const renderTradeLog = () => {
+            elements.tradeLogContainer.innerHTML = '';
+            if (state.trades.length === 0) {
+                elements.tradeLogContainer.innerHTML = '<p class="text-gray-500 text-center mt-8">لا توجد صفقات مسجلة حتى الآن.</p>';
+                return;
+            }
+
+            state.trades.filter(t => t.date && t.date.seconds).sort((a, b) => b.date.seconds - a.date.seconds)
+                .forEach(trade => {
+                    const isWin = trade.status === 'Win';
+                    const div = document.createElement('div');
+                    div.className = `trade-item card p-3 rounded-xl border-l-4 ${isWin ? 'border-green-500' : 'border-red-500'} cursor-pointer`;
+                    div.dataset.tradeId = trade.id;
+                    
+                    const dateObj = trade.date.toDate();
+                    const formattedDate = dateObj.toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' });
+                    const imageHtml = trade.imageBase64 ? `<img src="${trade.imageBase64}" alt="Trade chart" class="mt-2 rounded-lg w-full h-auto">` : '<p class="text-xs text-gray-500 mt-2">لا توجد صورة.</p>';
+                    
+                    div.innerHTML = `
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <span class="font-extrabold text-lg text-white">${trade.asset}</span>
+                                <span class="text-xs text-gray-400 ml-2">${trade.setup || ''}</span>
+                            </div>
+                             <div class="flex items-center gap-2">
+                                <span class="font-bold ${isWin ? 'text-green-400' : 'text-red-400'}">${formatCurrency(trade.profit)}</span>
+                                <button class="delete-trade-btn text-gray-500 hover:text-red-400" data-id="${trade.id}" title="حذف الصفقة">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                                </button>
+                             </div>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">${formattedDate} - ${trade.direction === 'Long' ? 'شراء' : 'بيع'}</div>
+                        <div class="trade-details mt-2 pt-2 border-t border-gray-700">
+                            <p class="text-sm text-gray-300">${trade.notes || 'لا توجد ملاحظات مسجلة.'}</p>
+                            ${imageHtml}
+                        </div>`;
+                    elements.tradeLogContainer.appendChild(div);
+                });
+        };
+
+        const fileToBase64 = (file) => new Promise((resolve, reject) => {
+            if (!file) return resolve(null);
+            if (file.size > 1024 * 500) return reject("حجم الصورة يتجاوز 500 كيلوبايت.");
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = (error) => reject(error);
+        });
+
+        const loadTrades = () => {
+            if (unsubscribe) unsubscribe(); 
+            if (!window.db || !window.userId) return;
+            
+            const journalCollectionPath = `artifacts/${window.appId}/users/${window.userId}/trading_journal`;
+            const q = window.query(window.collection(window.db, journalCollectionPath));
+            
+            unsubscribe = window.onSnapshot(q, (snapshot) => {
+                state.trades = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderAll();
+                elements.authOverlay.classList.add('hidden');
+                elements.appContainer.classList.remove('opacity-0');
+                
+                const user = window.auth.currentUser;
+                if (user) {
+                    elements.userIdDisplay.textContent = user.email || `مستخدم: ${window.userId.substring(0, 6)}`;
+                }
+            }, (error) => {
+                console.error("Error fetching trades:", error);
+                elements.authOverlay.classList.add('hidden');
+                elements.appContainer.classList.remove('opacity-0');
+            });
+        };
+
+        const addTrade = async (tradeData) => {
+            if (!window.db) return;
+            elements.submitBtn.innerHTML = `<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>`;
+            elements.submitBtn.disabled = true;
+            const journalCollectionPath = `artifacts/${window.appId}/users/${window.userId}/trading_journal`;
+
+            try {
+                await window.addDoc(window.collection(window.db, journalCollectionPath), {
+                    ...tradeData, userId: window.userId,
+                });
+                elements.tradeForm.reset();
+                elements.tradeModal.classList.add('hidden');
+            } catch (e) {
+                console.error("Error adding document: ", e);
+            } finally {
+                elements.submitBtn.innerHTML = 'حفظ';
+                elements.submitBtn.disabled = false;
+            }
+        };
+
+        const deleteTrade = async (tradeId) => {
+            if (!window.db) return;
+             const journalCollectionPath = `artifacts/${window.appId}/users/${window.userId}/trading_journal`;
+            try {
+                await window.deleteDoc(window.doc(window.db, journalCollectionPath, tradeId));
+            } catch(e) { console.error("Error deleting trade: ", e); }
+        };
+
+        const handleSignIn = async (provider) => {
+            if (!window.auth) return;
+            showLoading();
+            try {
+                await window.signInWithPopup(window.auth, provider);
+            } catch (error) {
+                console.error("Sign-in failed:", error);
+                showLoginOptions();
+            }
+        };
+        
+        const setupEventListeners = () => {
+            elements.googleSignInBtn.addEventListener('click', () => handleSignIn(new window.GoogleAuthProvider()));
+            elements.appleSignInBtn.addEventListener('click', () => handleSignIn(new window.OAuthProvider('apple.com')));
+            elements.guestSignInBtn.addEventListener('click', () => {
+                 showLoading();
+                 const authModule = import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+                 authModule.then(({signInAnonymously}) => {
+                     signInAnonymously(window.auth).catch(error => {
+                         console.error("Guest sign-in failed: ", error);
+                         showLoginOptions();
+                     });
+                 });
+            });
+
+            elements.addTradeBtn.addEventListener('click', () => elements.tradeModal.classList.remove('hidden'));
+            elements.closeTradeModalBtn.addEventListener('click', () => elements.tradeModal.classList.add('hidden'));
+            elements.settingsBtn.addEventListener('click', () => elements.settingsModal.classList.remove('hidden'));
+            elements.closeSettingsModalBtn.addEventListener('click', () => elements.settingsModal.classList.add('hidden'));
+            
+            elements.confirmCancelBtn.addEventListener('click', () => {
+                elements.confirmModal.classList.add('hidden');
+                confirmCallback = null;
+            });
+            elements.confirmActionBtn.addEventListener('click', () => {
+                if (confirmCallback) confirmCallback();
+                elements.confirmModal.classList.add('hidden');
+                confirmCallback = null;
+            });
+            
+            elements.tradeLogContainer.addEventListener('click', (e) => {
+                const tradeItem = e.target.closest('.trade-item');
+                const deleteBtn = e.target.closest('.delete-trade-btn');
+
+                if(deleteBtn){
+                    e.stopPropagation();
+                    const tradeId = deleteBtn.dataset.id;
+                    showConfirmation('حذف الصفقة', 'هل أنت متأكد من رغبتك في حذف هذه الصفقة؟', () => deleteTrade(tradeId));
+                } else if (tradeItem) {
+                    tradeItem.classList.toggle('expanded');
+                }
+            });
+
+            elements.tradeForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                let imageBase64 = null;
+                const imageFile = document.getElementById('tradeImage').files[0];
+                if (imageFile) {
+                    try { imageBase64 = await fileToBase64(imageFile); } catch (error) { alert(error); return; }
+                }
+
+                const rawProfit = parseFloat(document.getElementById('profit').value);
+                const status = document.getElementById('status').value;
+                
+                const tradeData = {
+                    asset: document.getElementById('asset').value.toUpperCase().trim(),
+                    setup: document.getElementById('setup').value.trim(),
+                    date: window.serverTimestamp(), status: status,
+                    direction: document.getElementById('direction').value,
+                    profit: rawProfit * (status === 'Loss' ? -1 : 1),
+                    imageBase64: imageBase64,
+                    notes: document.getElementById('notes').value.trim(),
+                };
+                await addTrade(tradeData);
+            });
+            
+             elements.clearDataBtn.addEventListener('click', () => {
+                showConfirmation( 'مسح جميع البيانات', 'هل أنت متأكد تماماً؟ سيتم حذف جميع الصفقات بشكل نهائي.',
+                    () => { state.trades.forEach(trade => deleteTrade(trade.id)); }
+                );
+            });
+
+            elements.exportBtn.addEventListener('click', () => {
+                 if (state.trades.length === 0) return;
+                const headers = ['Asset', 'Date', 'Setup', 'Direction', 'Status', 'Profit', 'Notes'];
+                const csvRows = [headers.join(',')];
+                state.trades.filter(t=>t.date).forEach(trade => {
+                    const row = [
+                        trade.asset, trade.date.toDate().toISOString(), trade.setup,
+                        trade.direction, trade.status, trade.profit.toFixed(2),
+                        `"${(trade.notes || '').replace(/"/g, '""')}"`
+                    ];
+                    csvRows.push(row.join(','));
+                });
+                
+                const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = "trading_journal_export.csv";
+                link.click();
+            });
+        };
+
+        const init = () => {
+            if (authReady) return;
+            authReady = true;
+            loadTrades(); 
+            renderAll();
+            setupEventListeners();
+        };
+
+        document.addEventListener('authReady', init, { once: true });
+        document.addEventListener('authNeeded', showLoginOptions, { once: true });
+    });
+    </script>
+</body>
+</html>
+

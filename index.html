@@ -103,8 +103,9 @@
         window.doc = doc;
         window.serverTimestamp = serverTimestamp;
         window.GoogleAuthProvider = GoogleAuthProvider;
-        window.OAuthProvider = OAuthProvider; // Added for Apple Sign-in
+        window.OAuthProvider = OAuthProvider;
         window.signInWithPopup = signInWithPopup;
+        window.signInAnonymously = signInAnonymously; // Expose signInAnonymously globally
 
         setLogLevel('error');
         try {
@@ -717,14 +718,11 @@
             elements.googleSignInBtn.addEventListener('click', () => handleSignIn(new window.GoogleAuthProvider()));
             elements.appleSignInBtn.addEventListener('click', () => handleSignIn(new window.OAuthProvider('apple.com')));
             elements.guestSignInBtn.addEventListener('click', () => {
-                 showLoading();
-                 const authModule = import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
-                 authModule.then(({signInAnonymously}) => {
-                     signInAnonymously(window.auth).catch(error => {
-                         console.error("Guest sign-in failed: ", error);
-                         showLoginOptions();
-                     });
-                 });
+                showLoading();
+                window.signInAnonymously(window.auth).catch(error => {
+                    console.error("Guest sign-in failed: ", error);
+                    showLoginOptions();
+                });
             });
 
             elements.addTradeBtn.addEventListener('click', () => elements.tradeModal.classList.remove('hidden'));
@@ -812,6 +810,9 @@
             renderAll();
             setupEventListeners();
         };
+        
+        // This is the only event listener that should be outside init.
+        setupEventListeners();
 
         document.addEventListener('authReady', init, { once: true });
         document.addEventListener('authNeeded', showLoginOptions, { once: true });
